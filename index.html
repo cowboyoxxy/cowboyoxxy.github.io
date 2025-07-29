@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>546979a9298010 Showdown</title>
+  <link href="https://fonts.googleapis.com/css2?family=Rye&display=swap" rel="stylesheet">
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: white;
+      font-family: 'Rye', serif;
+      overflow: hidden;
+    }
+
+    #titleBoard {
+      width: 100%;
+      height: 120px;
+      background: url('https://i.imgur.com/BxS8UAB.png') repeat-x center;
+      background-size: contain;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      border-bottom: 4px solid #4a2f0f;
+      box-shadow: 0 4px 10px #888;
+    }
+
+    #title {
+      font-size: 2rem;
+      color: black;
+    }
+
+    #subtitle {
+      font-size: 1rem;
+      color: black;
+      margin-top: 4px;
+    }
+
+    #startBtn {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 1.5rem;
+      padding: 1rem 2rem;
+      background: black;
+      color: white;
+      border: none;
+      cursor: pointer;
+      z-index: 10;
+    }
+
+    #videoWrapper {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: calc(100vh - 120px);
+      position: relative;
+    }
+
+    video {
+      width: 800px;
+      height: 600px;
+      object-fit: cover;
+      border: 2px solid black;
+      z-index: 1;
+      transform: scaleX(1); /* Not mirrored */
+    }
+
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    .cowboy {
+      position: absolute;
+      bottom: 0;
+      width: 200px;
+      animation: cowboyBounce 6s ease-in-out infinite;
+      z-index: 3;
+    }
+
+    .bullet-hole {
+      position: absolute;
+      width: 60px;
+      height: 60px;
+      z-index: 5;
+    }
+
+    @keyframes cowboyBounce {
+      0% { left: 0; }
+      50% { left: calc(100% - 200px); }
+      100% { left: 0; }
+    }
+
+    #deathScreen, #winScreen {
+      display: none;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100vw;
+      height: 100vh;
+      color: white;
+      font-family: 'Rye', serif;
+      font-size: 5rem;
+      text-align: center;
+      padding-top: 30vh;
+      z-index: 1000;
+    }
+
+    #deathScreen { background: red; }
+    #winScreen { background: green; }
+  </style>
+</head>
+<body>
+  <div id="titleBoard">
+    <div id="title">546979a9298010 Showdown</div>
+    <div id="subtitle">Can you survive 7 shots?</div>
+  </div>
+
+  <button id="startBtn">Start Cowboy Showdown</button>
+
+  <div id="videoWrapper">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas" width="800" height="600"></canvas>
+    <img id="cowboy1" class="cowboy" src="assets/cowboy.png" />
+  </div>
+
+  <div id="deathScreen">You're Dead</div>
+  <div id="winScreen">You Won</div>
+
+  <audio id="gunshot" src="assets/gunshot.wav" preload="auto"></audio>
+  <audio id="cowboyVoice" src="assets/cowboyvoice.wav" preload="auto"></audio>
+  <audio id="cowboyDefeat" src="assets/cowboydefeat.wav" preload="auto"></audio>
+  <audio id="backgroundMusic" src="assets/background.wav" preload="auto" loop></audio>
+
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const startBtn = document.getElementById('startBtn');
+    const cowboy = document.getElementById('cowboy1');
+    const gunshot = document.getElementById('gunshot');
+    const cowboyVoice = document.getElementById('cowboyVoice');
+    const cowboyDefeat = document.getElementById('cowboyDefeat');
+    const backgroundMusic = document.getElementById('backgroundMusic');
+    const deathScreen = document.getElementById('deathScreen');
+    const winScreen = document.getElementById('winScreen');
+
+    let lastShot = 0;
+    let audioContext;
+    let gunshotBuffer = null;
+    let lastPos = null;
+    let isDead = false;
+    let surviveCount = 0;
+
+    async function loadGunshot() {
+      const response = await fetch('assets/gunshot.wav');
+      const arrayBuffer = await response.arrayBuffer();
+      gunshotBuffer = await audioContext.decodeAudioData(arrayBuffer);
+    }
+
+    function fireGunshot() {
+      if (!gunshotBuffer || isDead || !lastPos) return;
+
+      const source = audioContext.createBufferSource();
+      source.buffer = gunshotBuffer;
+      source.connect(audioContext.destination);
+      source.start();
+
+      cowboy.src = 'assets/cowboy2.png';
+      setTimeout(() => {
+        cowboy.src = 'assets/cowboy.png';
+      }, 1000);
+
+      const holeX = lastPos.x * 800 + (window.innerWidth - 800) / 2;
+      const holeY = lastPos.y * 600 + (window.innerHeight - 120 - 600) / 2 + 120;
+
+      const hole = document.createElement('img');
+      hole.src = 'assets/bullet-hole.png';
+      hole.className = 'bullet-hole';
+      hole.style.left = `${holeX - 30}px`;
+      hole.style.top = `${holeY - 30}px`;
+      document.body.appendChild(hole);
+
+      checkHit(holeX, holeY);
+    }
+
+    function checkHit(holeX, holeY) {
+      if (!lastPos || isDead) return;
+
+      const noseX = lastPos.x * 800 + (window.innerWidth - 800) / 2;
+      const noseY = lastPos.y * 600 + (window.innerHeight - 120 - 600) / 2 + 120;
+
+      const dx = holeX - noseX;
+      const dy = holeY - noseY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      const maxChance = 8;
+      const currentChance = Math.max(2, maxChance - surviveCount);
+      const random = Math.floor(Math.random() * currentChance);
+
+      if (distance < 50 && random === 0) {
+        isDead = true;
+        cowboyVoice.play();
+        deathScreen.style.display = 'block';
+      } else {
+        surviveCount++;
+        if (surviveCount >= 7 && !isDead) {
+          isDead = true;
+          cowboyDefeat.play();
+          winScreen.style.display = 'block';
+        }
+      }
+    }
+
+    startBtn.addEventListener('click', async () => {
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      await loadGunshot();
+      gunshot.play();
+      backgroundMusic.play(); // ✅ start background music
+      fireGunshot();
+      startBtn.style.display = 'none';
+      camera.start();
+      video.style.transform = 'scaleX(1)'; // Unmirror
+    });
+
+    const pose = new Pose({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+    });
+    pose.setOptions({
+      modelComplexity: 0,
+      smoothLandmarks: true,
+      enableSegmentation: false,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+
+    pose.onResults((results) => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      if (results.poseLandmarks) {
+        const nose = results.poseLandmarks[0];
+        const newPos = { x: nose.x, y: nose.y, z: nose.z };
+        const now = Date.now();
+
+        if (!isDead && lastPos && now - lastShot > 1500) {
+          const moved =
+            Math.abs(newPos.x - lastPos.x) > 0.02 ||
+            Math.abs(newPos.y - lastPos.y) > 0.02 ||
+            Math.abs(newPos.z - lastPos.z) > 0.02;
+
+          if (moved) {
+            fireGunshot();
+            lastShot = now;
+          }
+        }
+
+        lastPos = newPos;
+      }
+    });
+
+    const faceDetection = new FaceDetection({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`
+    });
+    faceDetection.setOptions({
+      model: 'short',
+      minDetectionConfidence: 0.5
+    });
+    faceDetection.onResults(() => {});
+
+    const camera = new Camera(video, {
+      onFrame: async () => {
+        await pose.send({ image: video });
+        await faceDetection.send({ image: video });
+      },
+      width: 800,
+      height: 600
+    });
+  </script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
